@@ -29,6 +29,7 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include<string.h> 
+#include <stdio.h>
 
 #define SS_PIN 53
 #define RST_PIN 5
@@ -39,10 +40,10 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);   // Create MFRC522 instance.
 #include <ArduinoJson.h>
 #include <Ethernet.h>
 
-EthernetClient client;
+EthernetClient clientGET;
 
 const size_t capacity =  JSON_ARRAY_SIZE(1) + JSON_OBJECT_SIZE(6) + 500;
-DynamicJsonDocument doc(capacity);
+DynamicJsonDocument docG(capacity);
 
 void setup() {
     Serial.begin(9600); // Initialize serial communications with the PC
@@ -62,8 +63,8 @@ void setup() {
     Serial.println(F("Connecting..."));
 
     // Connect to HTTP server
-    client.setTimeout(10000);
-    if (!client.connect("accesswave.herokuapp.com", 80)) {
+    clientGET.setTimeout(10000);
+    if (!clientGET.connect("accesswave.herokuapp.com", 80)) {
       Serial.println(F("Connection failed"));
       return;
     }
@@ -75,26 +76,26 @@ void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     
     // Send HTTP request
-    client.println(F("GET /device HTTP/1.0"));
-    client.println(F("Host: accesswave.herokuapp.com"));
-    client.println(F("Connection: close"));
-    if (client.println() == 0) {
+    clientGET.println("GET /device HTTP/1.0");
+    clientGET.println("Host: accesswave.herokuapp.com");
+    clientGET.println("Connection: close");
+    if (clientGET.println() == 0) {
       Serial.println(F("Failed to send request"));
       return;
     }
   
     // Check HTTP status
-    char status[32] = {0};
-    client.readBytesUntil('\r', status, sizeof(status));
-    if (strcmp(status, "HTTP/1.1 200 OK") != 0) {
+    char statusG[32] = {0};
+    clientGET.readBytesUntil('\r', statusG, sizeof(statusG));
+    if (strcmp(statusG, "HTTP/1.1 200 OK") != 0) {
       Serial.print(F("Unexpected response: "));
-      Serial.println(status);
+      Serial.println(statusG);
       return;
     }
   
     // Skip HTTP headers
     char endOfHeaders[] = "\r\n\r\n";
-    if (!client.find(endOfHeaders)) {
+    if (!clientGET.find(endOfHeaders)) {
       Serial.println(F("Invalid response"));
       return;
     }
@@ -149,38 +150,96 @@ void loop() {
     } 
   
     // Extract values
-    DeserializationError error = deserializeJson(doc, client);
+    DeserializationError error = deserializeJson(docG, clientGET);
     if (error) {
       Serial.print(F("deserializeJson() failed: "));
       Serial.println(error.c_str());
       return;
     }
+    int code = 0;
+    code = docG[0]["code"].as<int>();
     char* firstBlock = "";
-    firstBlock = doc[0]["firstBlock"].as<char*>();
+    firstBlock = docG[0]["firstBlock"].as<char*>();
     char* secondBlock = "";
-    secondBlock = doc[0]["secondBlock"].as<char*>();
+    secondBlock = docG[0]["secondBlock"].as<char*>();
     char* thirdBlock = "";
-    thirdBlock = doc[0]["thirdBlock"].as<char*>();
+    thirdBlock = docG[0]["thirdBlock"].as<char*>();
     char* fourthBlock = "";
-    fourthBlock = doc[0]["fourthBlock"].as<char*>();
+    fourthBlock = docG[0]["fourthBlock"].as<char*>();
+    char* userName = "";
+    userName = docG[0]["userName"].as<char*>();
     
-    //doc[0]["firstBlock"].as<char*>();
+    //docG[0]["firstBlock"].as<char*>();
     Serial.println(F("Response:"));  
-    Serial.println(doc[0]["code"].as<long>());
-    Serial.println(doc[0]["firstBlock"].as<char*>());
+    Serial.println(docG[0]["code"].as<int>());
+    Serial.println(docG[0]["firstBlock"].as<char*>());
     Serial.println(mfrc522.uid.uidByte[0]);
-    Serial.println(doc[0]["secondBlock"].as<char*>());
+    Serial.println(docG[0]["secondBlock"].as<char*>());
     Serial.println(mfrc522.uid.uidByte[1]);
-    Serial.println(doc[0]["thirdBlock"].as<char*>());
+    Serial.println(docG[0]["thirdBlock"].as<char*>());
     Serial.println(mfrc522.uid.uidByte[2]);
-    Serial.println(doc[0]["fourthBlock"].as<char*>());
+    Serial.println(docG[0]["fourthBlock"].as<char*>());
     Serial.println(mfrc522.uid.uidByte[3]); 
+    Serial.println(docG[0]["userName"].as<char*>());
       
     if (mfrc522.uid.uidByte[0] == hexadecimalToDecimal(firstBlock)
         && mfrc522.uid.uidByte[1] == hexadecimalToDecimal(secondBlock)
           && mfrc522.uid.uidByte[2] == hexadecimalToDecimal(thirdBlock)
             && mfrc522.uid.uidByte[3] == hexadecimalToDecimal(fourthBlock)) {
-        digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)                 
+        digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)     
+                  
+        EthernetClient clientPOST;
+        DynamicJsonDocument docP(capacity);  
+        
+        // Connect to HTTP server
+        clientPOST.setTimeout(10000);
+        if (!clientPOST.connect("accesswave.herokuapp.com", 80)) {
+          Serial.println(F("Connection failed"));
+          return;
+        }
+      
+        Serial.println(F("Connected!"));
+        // Send HTTP request
+        clientPOST.print("GET /access/auth?code=");
+        clientPOST.print(code);
+        clientPOST.println(" HTTP/1.0");        
+        clientPOST.println("Host: accesswave.herokuapp.com");
+        clientPOST.println("Connection: close");
+        
+        if (clientPOST.println() == 0) {
+          Serial.println(F("Failed to send request"));
+          return;
+        }
+      
+        // Check HTTP status
+        char statusP[32] = {0};
+        clientPOST.readBytesUntil('\r', statusP, sizeof(statusP));
+        if (strcmp(statusP, "HTTP/1.1 200 OK") != 0) {
+          Serial.print(F("Unexpected response: "));
+          Serial.println(statusP);
+          return;
+        }
+      
+        // Skip HTTP headers
+        char endOfHeadersP[] = "\r\n\r\n";
+        if (!clientPOST.find(endOfHeadersP)) {
+          Serial.println(F("Invalid response"));
+          return;
+        }
+        
+        // Extract values
+        DeserializationError errorP = deserializeJson(docP, clientPOST);
+        if (errorP) {
+          Serial.print(F("deserializeJson() failed: "));
+          Serial.println(errorP.c_str());
+          return;
+        }
+                
+        Serial.println(F("Response:"));  
+        Serial.println(docP["code"].as<long>());
+        Serial.println(docP["entry"].as<char*>());
+        
+        clientPOST.stop();
     }else{              
         digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
     }
@@ -192,7 +251,7 @@ void loop() {
     mfrc522.PICC_DumpToSerial(&(mfrc522.uid));
     
     // Disconnect
-    client.stop();
+    clientGET.stop();
     delay(1000);
 
 }
